@@ -1,0 +1,78 @@
+name: Deploy Backend to AWS App Runner
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:  # Permite ejecutar manualmente desde GitHub
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: blindpower-backend
+  APPRUNNER_SERVICE: blindpower-backend
+
+jobs:
+  deploy:
+    name: Build and Deploy Backend
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Configurar credenciales AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login a Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build, tag y push imagen a ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd backend
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Deploy a App Runner
+      id: deploy-apprunner
+      run: |
+        # Obtener ARN del servicio App Runner
+        SERVICE_ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='$APPRUNNER_SERVICE'].ServiceArn" --output text)
+
+        if [ -z "$SERVICE_ARN" ]; then
+          echo "Servicio App Runner no existe. Créalo primero manualmente o con el script."
+          exit 1
+        fi
+
+        # Trigger update del servicio (App Runner detecta la nueva imagen 'latest' automáticamente)
+        aws apprunner start-deployment --service-arn $SERVICE_ARN
+
+        echo "Deployment iniciado. App Runner actualizará a la nueva imagen."
+
+        # Obtener URL del servicio
+        SERVICE_URL=$(aws apprunner describe-service --service-arn $SERVICE_ARN --query "Service.ServiceUrl" --output text)
+        echo "service-url=https://$SERVICE_URL" >> $GITHUB_OUTPUT
+
+    - name: Resumen del deployment
+      run: |
+        echo "### 🚀 Deployment Exitoso!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Backend URL:** ${{ steps.deploy-apprunner.outputs.service-url }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Imagen:** ${{ steps.build-image.outputs.image }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Región:** ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "El servicio App Runner está actualizándose. Esto puede tomar 2-5 minutos." >> $GITHUB_STEP_SUMMARY

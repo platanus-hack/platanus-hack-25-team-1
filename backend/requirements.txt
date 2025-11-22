@@ -1,0 +1,26 @@
+# Backend - BlindPower MVP
+# Servidor web
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Procesamiento de imágenes
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# 🔥 IMPORTANTE: forzar PyTorch CPU-only
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.4.1+cpu
+torchvision==0.19.1+cpu
+torchaudio==2.4.1+cpu
+
+# Modelo de detección YOLO
+ultralytics>=8.0.0
+
+# TTS opcional (para feedback en backend)
+pyttsx3>=2.90
+
+# Utilidades
+python-dotenv>=1.0.0
+requests>=2.32.0  # para el HEALTHCHECK que usa requests

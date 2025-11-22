@@ -1,0 +1,66 @@
+name: Deploy Frontend to S3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:  # Permite ejecutar manualmente desde GitHub
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: blindpower-frontend  # Cambia esto a tu bucket
+
+jobs:
+  deploy:
+    name: Deploy Frontend to S3
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Configurar credenciales AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Actualizar URL del backend en app.js
+      run: |
+        # Reemplazar localhost con la URL de App Runner
+        # Nota: Configura BACKEND_URL como secret en GitHub
+        if [ -n "${{ secrets.BACKEND_URL }}" ]; then
+          sed -i "s|http://localhost:8000|${{ secrets.BACKEND_URL }}|g" frontend/app.js
+          echo "✓ Backend URL actualizada a: ${{ secrets.BACKEND_URL }}"
+        else
+          echo "⚠️  BACKEND_URL no está configurada. Usando localhost."
+        fi
+
+    - name: Sync a S3
+      run: |
+        aws s3 sync frontend/ s3://$S3_BUCKET/ \
+          --delete \
+          --cache-control "public, max-age=3600" \
+          --metadata-directive REPLACE
+
+    - name: Invalidar caché de CloudFront (opcional)
+      run: |
+        # Si tienes CloudFront configurado, descomentar:
+        # DISTRIBUTION_ID=${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        # aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+        echo "Caché CloudFront no configurado (opcional)"
+
+    - name: Resumen del deployment
+      run: |
+        WEBSITE_URL="http://$S3_BUCKET.s3-website-$AWS_REGION.amazonaws.com"
+        echo "### 🎨 Frontend Deployed!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**S3 Bucket:** $S3_BUCKET" >> $GITHUB_STEP_SUMMARY
+        echo "**Website URL:** $WEBSITE_URL" >> $GITHUB_STEP_SUMMARY
+        echo "**Región:** $AWS_REGION" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "🔗 [Abrir sitio web]($WEBSITE_URL)" >> $GITHUB_STEP_SUMMARY

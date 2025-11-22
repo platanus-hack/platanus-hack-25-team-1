@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: blindpower-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount code for hot-reload during development
+      - ./backend:/app
+      # Prevent overwriting installed packages
+      - /app/__pycache__
+    environment:
+      - CORS_ORIGINS=*
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - blindpower-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: blindpower-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    environment:
+      - BACKEND_URL=http://backend:8000
+    networks:
+      - blindpower-network
+
+networks:
+  blindpower-network:
+    driver: bridge

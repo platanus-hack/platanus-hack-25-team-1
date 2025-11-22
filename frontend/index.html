@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlindPower - Asistente de Navegación</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚦 BlindPower</h1>
+            <p class="subtitle">Asistente de Navegación para Personas con Discapacidad Visual</p>
+        </header>
+
+        <main>
+            <!-- Video en vivo desde la cámara -->
+            <div class="video-container">
+                <video id="video" autoplay playsinline muted></video>
+                <canvas id="canvas"></canvas>
+                <div id="status" class="status">Presiona "Iniciar Copiloto" para comenzar</div>
+            </div>
+
+            <!-- Controles -->
+            <div class="controls">
+                <button id="startBtn" class="btn btn-primary">🚀 Iniciar Copiloto</button>
+                <button id="stopBtn" class="btn btn-secondary" disabled>⏹ Detener</button>
+            </div>
+
+            <!-- Configuración del servidor -->
+            <div class="config-panel">
+                <label for="serverUrl">URL del Servidor:</label>
+                <input type="text" id="serverUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+            </div>
+
+            <!-- Información de detección -->
+            <div class="info-panel">
+                <h3>Detecciones en Tiempo Real</h3>
+                <p class="info-text">La <strong>zona segura</strong> (rectángulo en el video) representa aproximadamente 1 metro frente a ti. Obstáculos en esta zona bloquean tu camino.</p>
+                <div id="detections" class="detections-list">
+                    <p class="placeholder">Esperando detecciones...</p>
+                </div>
+            </div>
+
+            <!-- Instrucciones de audio -->
+            <div class="audio-panel">
+                <h3>Instrucciones de Audio</h3>
+                <div id="instructions" class="instructions-list">
+                    <p class="placeholder">Las instrucciones aparecerán aquí...</p>
+                </div>
+            </div>
+
+            <!-- Logs para debug -->
+            <div class="logs-panel" id="logsPanel">
+                <h3>Logs del Sistema</h3>
+                <button id="toggleLogs" class="btn-toggle">Mostrar/Ocultar Logs</button>
+                <div id="logs" class="logs-content" style="display: none;"></div>
+            </div>
+        </main>
+
+        <footer>
+            <p>MVP para Hackathon - BlindPower 2024</p>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>
+

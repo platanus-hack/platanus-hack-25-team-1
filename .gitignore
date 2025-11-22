@@ -1,0 +1,35 @@
+# Entorno virtual
+venv/
+env/
+ENV/
+.venv
+yolovenv/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables (NUNCA commitear credenciales)
+.env
+.env.local
+.env.production
+
+# AWS
+.aws/
+
+# Build directories
+frontend-build/
+build/
+dist/
