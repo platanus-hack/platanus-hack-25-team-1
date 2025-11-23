@@ -47,6 +47,14 @@ export interface PredictionResponse {
   };
 }
 
+export interface AnalyzeImageResponse {
+  success: boolean;
+  text: string;
+  audio_base64: string;
+  audio_format: string;
+  error?: string;
+}
+
 class ApiService {
   private baseUrl: string;
 
@@ -104,11 +112,23 @@ class ApiService {
       const match = /\.(\w+)$/.exec(filename);
       const type = match ? `image/${match[1]}` : 'image/jpeg';
 
-      const fileObject = {
-        uri: imageUri,
-        name: filename,
-        type,
-      } as any;
+      // Platform-specific handling
+      let fileObject: any;
+
+      if (typeof window !== 'undefined' && !imageUri.startsWith('file://')) {
+        // Web platform: convert to blob
+        console.log('🌐 Plataforma Web detectada - Convirtiendo a Blob');
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        fileObject = new File([blob], filename, { type });
+      } else {
+        // Mobile platform: use React Native format
+        fileObject = {
+          uri: imageUri,
+          name: filename,
+          type,
+        };
+      }
 
       console.log(`📎 Archivo a enviar:`, { name: filename, type, uri: imageUri.substring(0, 50) + '...' });
 
@@ -187,6 +207,98 @@ class ApiService {
       return data;
     } catch (error) {
       console.error('Base64 prediction failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Analiza una imagen con Claude y genera audio con ElevenLabs
+   * @param imageUri - URI de la imagen capturada
+   * @param question - Pregunta del usuario sobre la imagen
+   */
+  async analyzeImage(imageUri: string, question?: string): Promise<AnalyzeImageResponse> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos timeout (Claude + ElevenLabs)
+
+    try {
+      console.log(`🔍 Analizando imagen con pregunta: "${question || '¿qué es esto?'}"`);
+
+      // Crear FormData para enviar la imagen
+      const formData = new FormData();
+
+      // En React Native, necesitamos usar un objeto especial para las imágenes
+      const filename = imageUri.split('/').pop() || 'photo.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
+
+      // Platform-specific handling
+      let fileObject: any;
+
+      if (typeof window !== 'undefined' && !imageUri.startsWith('file://')) {
+        // Web platform: convert to blob
+        console.log('🌐 Plataforma Web detectada - Convirtiendo a Blob');
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        fileObject = new File([blob], filename, { type });
+      } else {
+        // Mobile platform: use React Native format
+        fileObject = {
+          uri: imageUri,
+          name: filename,
+          type,
+        };
+      }
+
+      formData.append('file', fileObject);
+
+      // Construir URL con query parameter si hay pregunta
+      let url = `${this.baseUrl}/analyze_image`;
+      if (question) {
+        url += `?question=${encodeURIComponent(question)}`;
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      console.log(`📡 Respuesta de análisis: ${response.status} ${response.statusText}`);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Error HTTP ${response.status}:`, errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const data: AnalyzeImageResponse = await response.json();
+
+      console.log(`✅ Análisis recibido:`, {
+        success: data.success,
+        hasText: !!data.text,
+        hasAudio: !!data.audio_base64,
+        audioFormat: data.audio_format,
+      });
+
+      if (!data.success) {
+        throw new Error(data.error || 'Error al analizar la imagen');
+      }
+
+      return data;
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+
+      if (error.name === 'AbortError') {
+        console.error('❌ Timeout: La petición tardó más de 30 segundos');
+        throw new Error('Timeout: El servidor tardó demasiado en responder');
+      }
+
+      console.error('❌ Error en analyzeImage:', error);
       throw error;
     }
   }

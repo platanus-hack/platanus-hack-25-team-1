@@ -24,3 +24,6 @@ pyttsx3>=2.90
 # Utilidades
 python-dotenv>=1.0.0
 requests>=2.32.0  # para el HEALTHCHECK que usa requests
+# Servicios de visión (opcional)
+anthropic>=0.34.0  # Claude API
+elevenlabs>=1.0.0  # ElevenLabs TTS

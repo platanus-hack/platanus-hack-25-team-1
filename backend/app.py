@@ -7,6 +7,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from vision_service import analyze_and_speak, initialize_clients as init_vision_clients
 import cv2
 import numpy as np
 import base64
@@ -15,7 +16,6 @@ import os
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional
-
 from object_detector import ObjectDetector
 from navigation_logic import NavigationLogic
 
@@ -62,11 +62,76 @@ async def startup_event():
         
         # Inicializar lógica de navegación
         navigation_logic = NavigationLogic()
+        try:
+            init_vision_clients()
+            logger.info("✅ Servicios de visión inicializados")
+        except Exception as e:
+            logger.warning(f"⚠️ Servicios de visión no disponibles: {str(e)}")
         
         logger.info("✅ Servidor listo para recibir requests")
     except Exception as e:
         logger.error(f"❌ Error al inicializar: {str(e)}", exc_info=True)
         raise
+
+@app.post("/analyze_image")
+async def analyze_image(
+    file: UploadFile = File(...),
+    question: Optional[str] = None
+):
+    """
+    Endpoint para analizar imagen con Claude y generar audio con ElevenLabs
+    
+    Args:
+        file: Imagen en formato JPEG/PNG (multipart/form-data)
+        question: Pregunta opcional sobre la imagen (query parameter)
+    
+    Returns:
+        JSON con:
+            - success: bool
+            - text: str (respuesta de Claude)
+            - audio_base64: str (audio MP3 en base64)
+            - audio_format: str ("mp3")
+            - error: str (si hay error)
+    """
+    try:
+        # Validar tipo de contenido
+        if file.content_type and file.content_type not in ["image/jpeg", "image/jpg", "image/png", "image/webp"]:
+            raise HTTPException(
+                status_code=400, 
+                detail="Tipo de archivo no soportado. Use JPEG, PNG o WebP."
+            )
+        
+        # Leer imagen
+        logger.info(f"📥 Analizando imagen: {file.filename}")
+        contents = await file.read()
+        
+        # Decodificar imagen
+        frame = _decode_image_from_bytes(contents)
+        height, width = frame.shape[:2]
+        logger.info(f"✅ Imagen decodificada: {width}x{height} píxeles")
+        
+        # Pregunta por defecto
+        pregunta = question or "¿qué es esto?"
+        logger.info(f"❓ Pregunta: {pregunta}")
+        
+        # Analizar y generar audio
+        result = analyze_and_speak(frame, pregunta)
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Error al procesar imagen")
+            )
+        
+        logger.info(f"✅ Análisis completado: {result['text']}")
+        
+        return JSONResponse(content=result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error en análisis de imagen: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error al procesar imagen: {str(e)}")
 
 @app.get("/")
 async def root():

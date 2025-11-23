@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "1728b363-81ea-41d1-b261-8e95d98b208a"
+      }
+    },
+    "web": {
+      "output": "static"
+    }
+  }
+}

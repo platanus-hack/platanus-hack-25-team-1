@@ -56,7 +56,7 @@ export function FarooLogo({ width = 200, height = 60, showText = true }: FarooLo
                 fill="#ffffff"
                 fontFamily="System"
               >
-                Faroo
+                Faro
               </SvgText>
 
               {/* Versión "v2" */}
