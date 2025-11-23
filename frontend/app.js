@@ -5,7 +5,7 @@
 
 // Configuración
 const CONFIG = {
-    captureInterval: 500, // Capturar frame cada 500ms (2 FPS)
+    captureInterval: 500, // Capturar frame cada 100ms (10 FPS)
     serverUrl: 'http://localhost:8000',
     minConfidence: 0.5
 };
@@ -20,8 +20,20 @@ const state = {
     captureInterval: null,
     lastInstruction: null,
     lastInstructionTime: 0,
-    instructionCooldown: 2000 // 2 segundos entre instrucciones similares
+    instructionCooldown: 2000, // 2 segundos entre instrucciones similares
+    isMobile: false, // Si es dispositivo móvil
+    currentCamera: 'environment' // Cámara actual: 'user' (frontal) o 'environment' (trasera) - CAMBIAR AQUÍ
 };
+
+/**
+ * Detecta si es un dispositivo móvil
+ */
+function detectMobile() {
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+    const isSmallScreen = window.innerWidth <= 768;
+    return isMobileDevice || isSmallScreen;
+}
 
 // Inicialización cuando el DOM está listo
 document.addEventListener('DOMContentLoaded', () => {
@@ -37,15 +49,50 @@ function initializeApp() {
     state.canvas = document.getElementById('canvas');
     state.ctx = state.canvas.getContext('2d');
     
+    // Detectar si es móvil
+    state.isMobile = detectMobile();
+    
+    // Mostrar selector de cámara solo en móviles
+    const cameraSelector = document.getElementById('cameraSelector');
+    const cameraSelect = document.getElementById('cameraSelect');
+    
+    if (state.isMobile) {
+        cameraSelector.style.display = 'block';
+        log('📱 Dispositivo móvil detectado - Selector de cámara habilitado');
+        
+        // Event listener para cambio de cámara
+        cameraSelect.addEventListener('change', async (e) => {
+            if (state.isRunning) {
+                log('🔄 Cambiando cámara...');
+                // Detener stream actual
+                if (state.stream) {
+                    state.stream.getTracks().forEach(track => track.stop());
+                }
+                // Actualizar cámara seleccionada
+                state.currentCamera = e.target.value;
+                // Reiniciar con nueva cámara
+                await startCopilot();
+            } else {
+                state.currentCamera = e.target.value;
+                log(`📷 Cámara seleccionada: ${state.currentCamera === 'user' ? 'Frontal' : 'Trasera'}`);
+            }
+        });
+    } else {
+        cameraSelector.style.display = 'none';
+        log('💻 Dispositivo de escritorio detectado - Usando única cámara disponible');
+    }
+    
     // Botones
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const toggleLogsBtn = document.getElementById('toggleLogs');
-    
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+
     // Event listeners
     startBtn.addEventListener('click', startCopilot);
     stopBtn.addEventListener('click', stopCopilot);
     toggleLogsBtn.addEventListener('click', toggleLogs);
+    fullscreenBtn.addEventListener('click', toggleFullscreen);
     
     // Configuración del servidor
     const serverUrlInput = document.getElementById('serverUrl');
@@ -60,6 +107,79 @@ function initializeApp() {
     }
     
     log('✅ Aplicación inicializada');
+}
+
+/**
+ * Entra en modo pantalla completa
+ */
+function enterFullscreen() {
+    const videoContainer = document.getElementById('videoContainer');
+
+    // Solo entrar si no está ya en pantalla completa
+    if (!document.fullscreenElement &&
+        !document.webkitFullscreenElement &&
+        !document.mozFullScreenElement &&
+        !document.msFullscreenElement) {
+
+        if (videoContainer.requestFullscreen) {
+            videoContainer.requestFullscreen().catch(err => {
+                log(`⚠️ Error al activar pantalla completa: ${err.message}`);
+            });
+        } else if (videoContainer.webkitRequestFullscreen) {
+            videoContainer.webkitRequestFullscreen(); // Safari
+        } else if (videoContainer.mozRequestFullScreen) {
+            videoContainer.mozRequestFullScreen(); // Firefox
+        } else if (videoContainer.msRequestFullscreen) {
+            videoContainer.msRequestFullscreen(); // IE/Edge
+        }
+        log('🖥️ Pantalla completa activada');
+    }
+}
+
+/**
+ * Alterna pantalla completa para el contenedor de video
+ */
+function toggleFullscreen() {
+    if (!document.fullscreenElement &&
+        !document.webkitFullscreenElement &&
+        !document.mozFullScreenElement &&
+        !document.msFullscreenElement) {
+        // Entrar en pantalla completa
+        enterFullscreen();
+    } else {
+        // Salir de pantalla completa
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        } else if (document.mozCancelFullScreen) {
+            document.mozCancelFullScreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        }
+        log('🖥️ Pantalla completa desactivada');
+    }
+}
+
+/**
+ * Aplica efecto espejo solo para cámara frontal
+ * La cámara trasera muestra la imagen normal, la frontal se refleja
+ */
+function applyMirrorEffect() {
+    const video = state.video;
+    const canvas = state.canvas;
+
+    if (state.currentCamera === 'user') {
+        // Cámara frontal: aplicar efecto espejo
+        video.style.transform = 'scaleX(-1)';
+        canvas.style.transform = 'scaleX(-1)';
+        log('🪞 Efecto espejo activado (cámara frontal)');
+    } else {
+        // Cámara trasera: mostrar imagen normal
+        video.style.transform = 'scaleX(1)';
+        canvas.style.transform = 'scaleX(1)';
+        log('📷 Imagen normal (cámara trasera)');
+    }
 }
 
 /**
@@ -81,13 +201,25 @@ async function startCopilot() {
             }
         }
 
+        // Configurar opciones de video según dispositivo
+        const videoConstraints = {
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+        };
+        
+        // En móviles: usar facingMode según selección
+        // En desktop: no especificar facingMode (usa la única cámara disponible)
+        if (state.isMobile) {
+            videoConstraints.facingMode = state.currentCamera; // 'user' (frontal) o 'environment' (trasera)
+            log(`📷 Solicitando cámara: ${state.currentCamera === 'user' ? 'Frontal' : 'Trasera'}`);
+        } else {
+            // Desktop: no especificar facingMode, usar cualquier cámara disponible
+            log('📷 Solicitando cámara disponible (escritorio)');
+        }
+        
         // Solicitar acceso a la cámara
         state.stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                width: { ideal: 640 },
-                height: { ideal: 480 },
-                facingMode: 'user' // Cámara frontal
-            },
+            video: videoConstraints,
             audio: false
         });
         
@@ -102,17 +234,33 @@ async function startCopilot() {
             
             state.canvas.width = videoWidth;
             state.canvas.height = videoHeight;
-            
+
             log(`📹 Video configurado: ${videoWidth}x${videoHeight}`);
             log(`🖼️ Canvas configurado: ${state.canvas.width}x${state.canvas.height}`);
-            
+
+            // Aplicar efecto espejo solo para cámara frontal
+            applyMirrorEffect();
+
+            // En móviles, activar pantalla completa automáticamente
+            if (state.isMobile) {
+                setTimeout(() => {
+                    enterFullscreen();
+                }, 500); // Pequeño delay para asegurar que el video esté listo
+            }
+
             // Iniciar captura de frames
             state.isRunning = true;
             state.captureInterval = setInterval(captureAndProcess, CONFIG.captureInterval);
-            
+
             // Actualizar UI
             document.getElementById('startBtn').disabled = true;
             document.getElementById('stopBtn').disabled = false;
+
+            // Deshabilitar selector de cámara mientras está corriendo (para evitar cambios)
+            if (state.isMobile) {
+                document.getElementById('cameraSelect').disabled = true;
+            }
+            
             updateStatus('✅ Copiloto activo - Procesando...');
             
             log('✅ Copiloto iniciado correctamente');
@@ -125,7 +273,7 @@ async function startCopilot() {
         
     } catch (error) {
         log(`❌ Error al acceder a la cámara: ${error.message}`, 'error');
-        showError(`No se pudo acceder a la cámara: ${error.message}`);
+        // showError(`No se pudo acceder a la cámara: ${error.message}`);
     }
 }
 
@@ -158,6 +306,12 @@ function stopCopilot() {
     // Actualizar UI
     document.getElementById('startBtn').disabled = false;
     document.getElementById('stopBtn').disabled = true;
+    
+    // Habilitar selector de cámara cuando se detiene
+    if (state.isMobile) {
+        document.getElementById('cameraSelect').disabled = false;
+    }
+    
     updateStatus('Copiloto detenido');
     
     // Detener síntesis de voz
@@ -168,6 +322,10 @@ function stopCopilot() {
     log('✅ Copiloto detenido');
 }
 
+// Control de procesamiento para evitar sobrecarga
+let isProcessing = false;
+let pendingFrame = null;
+
 /**
  * Captura un frame y lo procesa
  */
@@ -176,19 +334,25 @@ async function captureAndProcess() {
         return;
     }
     
+    // Si ya hay un frame procesándose, guardar este para procesarlo después
+    if (isProcessing) {
+        pendingFrame = true; // Marcar que hay un frame pendiente
+        return;
+    }
+    
     // Verificar que el video esté listo
     if (state.video.readyState !== state.video.HAVE_ENOUGH_DATA) {
-        log('⏳ Esperando datos del video...', 'info');
         return;
     }
     
     // Verificar que el canvas esté configurado
     if (state.canvas.width === 0 || state.canvas.height === 0) {
-        log('⏳ Configurando canvas...', 'info');
         state.canvas.width = state.video.videoWidth || 640;
         state.canvas.height = state.video.videoHeight || 480;
         return;
     }
+    
+    isProcessing = true;
     
     try {
         // Dibujar frame en canvas
@@ -197,18 +361,25 @@ async function captureAndProcess() {
         // Convertir canvas a blob
         state.canvas.toBlob(async (blob) => {
             if (!blob) {
-                log('❌ No se pudo crear blob del frame', 'error');
+                isProcessing = false;
                 return;
             }
             
-            log(`📤 Enviando frame (${blob.size} bytes)`, 'info');
-            
-            // Enviar al backend
-            await sendFrameToBackend(blob);
-        }, 'image/jpeg', 0.8);
+            // Enviar al backend (sin await para no bloquear)
+            sendFrameToBackend(blob).finally(() => {
+                isProcessing = false;
+                // Si hay un frame pendiente, procesarlo inmediatamente
+                if (pendingFrame) {
+                    pendingFrame = false;
+                    // Usar setTimeout para no bloquear
+                    setTimeout(() => captureAndProcess(), 0);
+                }
+            });
+        }, 'image/jpeg', 0.85); // Calidad ligeramente reducida para velocidad
         
     } catch (error) {
         log(`❌ Error al capturar frame: ${error.message}`, 'error');
+        isProcessing = false;
     }
 }
 
@@ -220,8 +391,6 @@ async function sendFrameToBackend(blob) {
         const formData = new FormData();
         formData.append('file', blob, 'frame.jpg');
         
-        log(`📡 Enviando a ${CONFIG.serverUrl}/predict`, 'info');
-        
         const response = await fetch(`${CONFIG.serverUrl}/predict`, {
             method: 'POST',
             body: formData
@@ -229,27 +398,20 @@ async function sendFrameToBackend(blob) {
         
         if (!response.ok) {
             const errorText = await response.text();
-            log(`❌ HTTP error ${response.status}: ${errorText}`, 'error');
             throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
         }
         
         const data = await response.json();
         
-        log(`✅ Respuesta recibida: ${data.detections?.length || 0} detecciones`, 'success');
-        
-        // Procesar respuesta
+        // Procesar respuesta (sin logs excesivos para mejor rendimiento)
         processResponse(data);
         
     } catch (error) {
-        log(`❌ Error al enviar frame: ${error.message}`, 'error');
-        
-        // Si el servidor no está disponible, mostrar mensaje
+        // Solo mostrar errores importantes
         if (error.message.includes('Failed to fetch') || 
             error.message.includes('NetworkError') ||
             error.message.includes('fetch')) {
             updateStatus('❌ No se puede conectar al servidor. Verifica que esté ejecutándose en ' + CONFIG.serverUrl);
-        } else {
-            updateStatus(`❌ Error: ${error.message}`);
         }
     }
 }
@@ -295,6 +457,7 @@ function processResponse(data) {
  * Dibuja bounding boxes y zona segura en el canvas
  */
 function drawDetections(detections, safeZone) {
+    // Solo dibujar objetos cercanos (< 2m) en rojo, los lejanos en otro color
     // Limpiar canvas (mantener el video de fondo)
     state.ctx.drawImage(state.video, 0, 0, state.canvas.width, state.canvas.height);
     
@@ -315,15 +478,38 @@ function drawDetections(detections, safeZone) {
         let lineWidth = 3;
         
         if (detection.type === 'traffic_light') {
-            color = detection.state === 'red' ? '#FF0000' : 
-                   detection.state === 'yellow' ? '#FFFF00' : '#00FF00';
-        } else if (detection.type === 'obstacle') {
-            // Obstáculos en zona segura se marcan en rojo y más grueso
-            if (detection.in_safe_zone) {
-                color = '#FF0000'; // Rojo para obstáculos bloqueando
+            // Semáforos siempre se muestran, sin importar distancia
+            // Color según estado: rojo, amarillo, verde
+            if (detection.state === 'red') {
+                color = '#FF0000'; // Rojo
                 lineWidth = 5;
+            } else if (detection.state === 'yellow') {
+                color = '#FFFF00'; // Amarillo
+                lineWidth = 4;
+            } else if (detection.state === 'green') {
+                color = '#00FF00'; // Verde
+                lineWidth = 4;
             } else {
-                color = '#FF6B00'; // Naranja para obstáculos fuera de zona segura
+                color = '#FF8800'; // Naranja si no se detecta estado
+                lineWidth = 3;
+            }
+        } else if (detection.type === 'obstacle') {
+            // Usar distancia para determinar color
+            const distanceMeters = detection.distance_meters || 10.0;
+            const isClose = detection.is_close || (distanceMeters < 2.0);
+            
+            // Solo marcar en ROJO si está cerca (< 2m) Y en zona segura
+            if (detection.in_safe_zone && isClose) {
+                color = '#FF0000'; // Rojo para obstáculos cercanos bloqueando
+                lineWidth = 5;
+            } else if (isClose) {
+                // Cercano pero fuera de zona segura
+                color = '#FF6B00'; // Naranja
+                lineWidth = 3;
+            } else {
+                // Lejano (> 2m): detectado pero no peligroso
+                color = '#888888'; // Gris para objetos lejanos
+                lineWidth = 2;
             }
         } else if (detection.type === 'crosswalk') {
             color = '#00FFFF'; // Cyan
@@ -334,20 +520,33 @@ function drawDetections(detections, safeZone) {
         state.ctx.lineWidth = lineWidth;
         state.ctx.strokeRect(x, y, w, h);
         
-        // Si está en zona segura, agregar fondo rojo semitransparente
-        if (detection.in_safe_zone && detection.type === 'obstacle') {
+        // Solo agregar fondo rojo si está cerca (< 2m) Y en zona segura
+        if (detection.in_safe_zone && detection.type === 'obstacle' && detection.is_close) {
             state.ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
             state.ctx.fillRect(x, y, w, h);
         }
         
-        // Dibujar etiqueta
+        // Dibujar etiqueta con distancia y estado
         state.ctx.fillStyle = color;
         state.ctx.font = '16px Arial';
-        state.ctx.fillText(
-            `${detection.class_es} (${(detection.confidence * 100).toFixed(0)}%)`,
-            x,
-            y - 5
-        );
+        let labelText = detection.class_es;
+        
+        // Para semáforos, mostrar estado
+        if (detection.type === 'traffic_light' && detection.state) {
+            const stateText = detection.state === 'red' ? 'ROJO' : 
+                             detection.state === 'yellow' ? 'AMARILLO' : 
+                             detection.state === 'green' ? 'VERDE' : '';
+            labelText += ` [${stateText}]`;
+        } else {
+            // Para otros objetos, mostrar distancia
+            const distanceMeters = detection.distance_meters || null;
+            if (distanceMeters) {
+                labelText += ` (${distanceMeters.toFixed(1)}m)`;
+            }
+        }
+        
+        labelText += ` (${(detection.confidence * 100).toFixed(0)}%)`;
+        state.ctx.fillText(labelText, x, y - 5);
     });
 }
 

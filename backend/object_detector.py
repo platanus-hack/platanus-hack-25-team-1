@@ -140,9 +140,9 @@ class ObjectDetector:
             traffic_lights = self._detect_traffic_lights_by_color(frame)
             detections.extend(traffic_lights)
             
-            # Detectar pasos de peatones
-            crosswalks = self._detect_crosswalks(frame)
-            detections.extend(crosswalks)
+            # Detectar pasos de peatones (DESACTIVADO temporalmente)
+            # crosswalks = self._detect_crosswalks(frame)
+            # detections.extend(crosswalks)
             
             return detections
             
@@ -153,6 +153,7 @@ class ObjectDetector:
     def _detect_traffic_light_state(self, frame: np.ndarray, bbox: List[float]) -> Optional[str]:
         """
         Detecta el estado de un semáforo (rojo, amarillo, verde) basado en color
+        Mejorado para detectar semáforos de peatones y vehículos
         
         Args:
             frame: Frame completo
@@ -163,11 +164,12 @@ class ObjectDetector:
         """
         x, y, w, h = map(int, bbox)
         
-        # Extraer región del semáforo
-        x = max(0, x)
-        y = max(0, y)
-        w = min(w, frame.shape[1] - x)
-        h = min(h, frame.shape[0] - y)
+        # Expandir región un poco para capturar mejor los colores
+        padding = 5
+        x = max(0, x - padding)
+        y = max(0, y - padding)
+        w = min(w + 2*padding, frame.shape[1] - x)
+        h = min(h + 2*padding, frame.shape[0] - y)
         
         if w <= 0 or h <= 0:
             return None
@@ -177,29 +179,41 @@ class ObjectDetector:
         if roi.size == 0:
             return None
         
-        # Convertir a HSV para mejor detección de color
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        # Mejorar contraste y brillo para mejor detección
+        roi_enhanced = cv2.convertScaleAbs(roi, alpha=1.2, beta=10)
         
-        # Definir rangos de color
+        # Convertir a HSV para mejor detección de color
+        hsv = cv2.cvtColor(roi_enhanced, cv2.COLOR_BGR2HSV)
+        
+        # Rangos de color más amplios y tolerantes
         # Rojo (dos rangos porque rojo está en ambos extremos del espectro HSV)
-        lower_red1 = np.array([0, 100, 100])
+        lower_red1 = np.array([0, 50, 50])   # Más tolerante
         upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([170, 100, 100])
+        lower_red2 = np.array([170, 50, 50])
         upper_red2 = np.array([180, 255, 255])
         
         mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
         mask_red2 = cv2.inRange(hsv, lower_red2, upper_red2)
         mask_red = cv2.bitwise_or(mask_red1, mask_red2)
         
-        # Amarillo
-        lower_yellow = np.array([20, 100, 100])
-        upper_yellow = np.array([30, 255, 255])
-        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        # Limpiar máscara roja con morfología
+        kernel = np.ones((3, 3), np.uint8)
+        mask_red = cv2.morphologyEx(mask_red, cv2.MORPH_CLOSE, kernel)
+        mask_red = cv2.morphologyEx(mask_red, cv2.MORPH_OPEN, kernel)
         
-        # Verde
-        lower_green = np.array([40, 100, 100])
-        upper_green = np.array([80, 255, 255])
+        # Amarillo (más amplio para capturar diferentes tonos)
+        lower_yellow = np.array([15, 50, 50])
+        upper_yellow = np.array([35, 255, 255])
+        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        mask_yellow = cv2.morphologyEx(mask_yellow, cv2.MORPH_CLOSE, kernel)
+        mask_yellow = cv2.morphologyEx(mask_yellow, cv2.MORPH_OPEN, kernel)
+        
+        # Verde (más amplio)
+        lower_green = np.array([35, 50, 50])
+        upper_green = np.array([85, 255, 255])
         mask_green = cv2.inRange(hsv, lower_green, upper_green)
+        mask_green = cv2.morphologyEx(mask_green, cv2.MORPH_CLOSE, kernel)
+        mask_green = cv2.morphologyEx(mask_green, cv2.MORPH_OPEN, kernel)
         
         # Contar píxeles de cada color
         red_pixels = cv2.countNonZero(mask_red)
@@ -207,13 +221,16 @@ class ObjectDetector:
         green_pixels = cv2.countNonZero(mask_green)
         
         total_pixels = roi.shape[0] * roi.shape[1]
-        threshold = total_pixels * 0.05  # 5% del área
+        threshold = max(total_pixels * 0.03, 10)  # 3% del área o mínimo 10 píxeles
         
-        # Determinar estado
-        if red_pixels > threshold and red_pixels > yellow_pixels and red_pixels > green_pixels:
+        # Determinar estado (con prioridad: rojo > amarillo > verde)
+        # Si hay suficiente rojo, es rojo
+        if red_pixels > threshold and red_pixels >= yellow_pixels and red_pixels >= green_pixels:
             return 'red'
-        elif yellow_pixels > threshold and yellow_pixels > green_pixels:
+        # Si hay suficiente amarillo y no hay mucho rojo, es amarillo
+        elif yellow_pixels > threshold and yellow_pixels >= green_pixels:
             return 'yellow'
+        # Si hay suficiente verde y no hay rojo/amarillo dominante, es verde
         elif green_pixels > threshold:
             return 'green'
         

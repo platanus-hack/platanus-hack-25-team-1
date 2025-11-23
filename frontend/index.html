@@ -3,28 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BlindPower - Asistente de Navegación</title>
+    <title>Faroo v2</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🚦 BlindPower</h1>
+            <h1>⛯ Faroo - v2</h1>
             <p class="subtitle">Asistente de Navegación para Personas con Discapacidad Visual</p>
         </header>
 
         <main>
             <!-- Video en vivo desde la cámara -->
-            <div class="video-container">
+            <div class="video-container" id="videoContainer">
                 <video id="video" autoplay playsinline muted></video>
                 <canvas id="canvas"></canvas>
-                <div id="status" class="status">Presiona "Iniciar Copiloto" para comenzar</div>
+                <button id="fullscreenBtn" class="btn-fullscreen" title="Pantalla completa">⛶</button>
+                <!-- <div id="status" class="status">Presiona "Iniciar Copiloto" para comenzar</div> -->
             </div>
 
             <!-- Controles -->
             <div class="controls">
                 <button id="startBtn" class="btn btn-primary">🚀 Iniciar Copiloto</button>
                 <button id="stopBtn" class="btn btn-secondary" disabled>⏹ Detener</button>
+            </div>
+
+            <!-- Selector de cámara (solo en móviles) -->
+            <div class="camera-selector" id="cameraSelector" style="display: none;">
+                <label for="cameraSelect">📷 Cámara:</label>
+                <select id="cameraSelect">
+                    <option value="user">Frontal (Delantera)</option>
+                    <option value="environment" selected>Trasera</option>
+                </select>
             </div>
 
             <!-- Configuración del servidor -->

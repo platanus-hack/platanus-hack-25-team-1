@@ -10,8 +10,9 @@ on:
   workflow_dispatch:  # Permite ejecutar manualmente desde GitHub
 
 env:
-  AWS_REGION: us-east-1
-  S3_BUCKET: blindpower-frontend  # Cambia esto a tu bucket
+  AWS_REGION: sa-east-1
+  S3_BUCKET: blindpower-frontend-1763822834
+  CLOUDFRONT_DISTRIBUTION_ID: E2ULKAFW4WIS12
 
 jobs:
   deploy:
@@ -40,27 +41,39 @@ jobs:
           echo "⚠️  BACKEND_URL no está configurada. Usando localhost."
         fi
 
+    - name: Deshabilitar Block Public Access
+      run: |
+        aws s3api put-public-access-block \
+          --bucket $S3_BUCKET \
+          --region $AWS_REGION \
+          --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+
     - name: Sync a S3
       run: |
         aws s3 sync frontend/ s3://$S3_BUCKET/ \
+          --region $AWS_REGION \
           --delete \
           --cache-control "public, max-age=3600" \
           --metadata-directive REPLACE
 
-    - name: Invalidar caché de CloudFront (opcional)
+    - name: Invalidar caché de CloudFront
       run: |
-        # Si tienes CloudFront configurado, descomentar:
-        # DISTRIBUTION_ID=${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
-        # aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
-        echo "Caché CloudFront no configurado (opcional)"
+        aws cloudfront create-invalidation \
+          --distribution-id $CLOUDFRONT_DISTRIBUTION_ID \
+          --paths "/*"
+        echo "✓ Caché de CloudFront invalidado"
 
     - name: Resumen del deployment
       run: |
-        WEBSITE_URL="http://$S3_BUCKET.s3-website-$AWS_REGION.amazonaws.com"
+        S3_URL="http://$S3_BUCKET.s3-website-$AWS_REGION.amazonaws.com"
+        CLOUDFRONT_URL="https://d3hb5x9ur5btik.cloudfront.net"
         echo "### 🎨 Frontend Deployed!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**S3 Bucket:** $S3_BUCKET" >> $GITHUB_STEP_SUMMARY
-        echo "**Website URL:** $WEBSITE_URL" >> $GITHUB_STEP_SUMMARY
+        echo "**S3 URL (HTTP):** $S3_URL" >> $GITHUB_STEP_SUMMARY
+        echo "**CloudFront URL (HTTPS):** $CLOUDFRONT_URL ⭐" >> $GITHUB_STEP_SUMMARY
         echo "**Región:** $AWS_REGION" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "🔗 [Abrir sitio web]($WEBSITE_URL)" >> $GITHUB_STEP_SUMMARY
+        echo "🔗 [Abrir sitio web (HTTPS)]($CLOUDFRONT_URL)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "⚠️ **Importante:** Usa la URL de CloudFront (HTTPS) para que funcione el acceso a la cámara." >> $GITHUB_STEP_SUMMARY

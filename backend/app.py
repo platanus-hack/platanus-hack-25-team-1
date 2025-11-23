@@ -162,16 +162,55 @@ def _process_predictions(frame: np.ndarray) -> Dict:
     predictions = object_detector.predict(frame)
     logger.debug(f"Detecciones encontradas: {len(predictions)}")
     
-    # Generar instrucciones de navegación
-    instruction = navigation_logic.process_detections(predictions, width, height)
+    # FILTRAR: Solo incluir objetos dentro de zona segura (excepto autos y semáforos)
+    # Obtener zona segura primero (fija)
+    safe_zone = navigation_logic.get_safe_zone_coordinates()
     
-    # Obtener información de la zona segura (con ajuste dinámico según detecciones)
-    safe_zone = navigation_logic.get_safe_zone_coordinates(predictions)
+    # Filtrar detecciones: solo objetos en zona segura, excepto autos y semáforos
+    filtered_predictions = []
+    for pred in predictions:
+        pred_type = pred.get('type', 'other')
+        class_name = pred.get('class', '').lower()
+        class_es = pred.get('class_es', '').lower()
+        
+        # Semáforos siempre se incluyen
+        if pred_type == 'traffic_light':
+            filtered_predictions.append(pred)
+        # Autos siempre se incluyen
+        elif class_name == 'car' or class_es == 'auto':
+            filtered_predictions.append(pred)
+        # Pasos de peatones siempre se incluyen (DESACTIVADO temporalmente)
+        # elif pred_type == 'crosswalk':
+        #     filtered_predictions.append(pred)
+        # Otros objetos solo si están en zona segura
+        elif navigation_logic._is_object_in_safe_zone(pred["bbox"]):
+            filtered_predictions.append(pred)
+    
+    # Generar instrucciones de navegación con detecciones filtradas
+    instruction = navigation_logic.process_detections(filtered_predictions, width, height)
+    
+    # Obtener obstáculos en zona segura
     obstacles_in_safe_zone = navigation_logic._get_obstacles_in_safe_zone(
-        [p for p in predictions if p.get('type') == 'obstacle']
+        [p for p in filtered_predictions if p.get('type') == 'obstacle']
     )
     
-    # Preparar respuesta
+    # Calcular distancias para todas las detecciones filtradas
+    # EXCEPCIÓN: Semáforos siempre se muestran, sin importar la distancia
+    for pred in filtered_predictions:
+        if 'distance_meters' not in pred:
+            object_type = pred.get('class', 'unknown')
+            pred_type = pred.get('type', 'other')
+            
+            # Semáforos: no calcular distancia o usar distancia fija grande (siempre visibles)
+            if pred_type == 'traffic_light':
+                pred['distance_meters'] = 5.0  # Distancia fija para semáforos (siempre visibles)
+                pred['is_close'] = True  # Siempre se muestran
+            else:
+                distance_meters = navigation_logic._calculate_distance(pred["bbox"], object_type)
+                pred['distance_meters'] = distance_meters
+                pred['is_close'] = distance_meters < 2.0  # Menos de 2 metros = cercano
+    
+    # Preparar respuesta (usar predicciones filtradas)
     response = {
         "success": True,
         "detections": [
@@ -181,9 +220,12 @@ def _process_predictions(frame: np.ndarray) -> Dict:
                 "class_es": pred.get("class_es", pred["class"]),
                 "confidence": float(pred["confidence"]),
                 "type": pred["type"],
-                "in_safe_zone": navigation_logic._is_object_in_safe_zone(pred["bbox"])
+                "distance_meters": float(pred.get("distance_meters", 10.0)),
+                "is_close": bool(pred.get("is_close", False)),  # True si < 2m
+                "in_safe_zone": navigation_logic._is_object_in_safe_zone(pred["bbox"]),
+                "direction": navigation_logic._get_direction_for_object_in_safe_zone(pred["bbox"]) if navigation_logic._is_object_in_safe_zone(pred["bbox"]) else None
             }
-            for pred in predictions
+            for pred in filtered_predictions
         ],
         "instruction": {
             "text": instruction["text"] if instruction else "Continúa con precaución",
